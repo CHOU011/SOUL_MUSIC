@@ -1075,7 +1075,7 @@ function startMetro(){
     setTimeout(()=>{
       const p=$('#tapPad');if(!p)return;
       p.classList.add('flash');setTimeout(()=>p.classList.remove('flash'),90);
-      $('#tapCount').textContent=show<0?String(-show):String(8-R.taps.length);
+      if(show<0) $('#tapCount').textContent=String(-show);   /* 数拍倒数 4-3-2-1 */
     },Math.max(0,(t-A.ctx.currentTime)*1000));
     count++;
     R.timer=setTimeout(step,R.interval*1000);
@@ -1089,12 +1089,17 @@ function onTap(){
   if(R.phase==='idle'){ startMetro(); return; }
   if(R.phase==='countin'){ $('#tempoHint').textContent='别急，听我数完 4 拍（圆盘数字在倒数）'; return; }
   if(R.phase!=='measuring') return;
+  if(!R.clickTimes.length) return;
   const now=A.ctx.currentTime;
-  /* 找最近的节拍点算偏移（毫秒，负=抢拍，正=拖拍） */
-  let nearest=null,best=1e9;
-  R.clickTimes.forEach(c=>{const d=Math.abs(now-c);if(d<best){best=d;nearest=c;}});
-  if(nearest===null||best>0.45){ $('#tempoHint').textContent='没踩上拍，再试一下'; return; }  /* 离任何拍点太远，忽略误触 */
-  const off=(now-nearest)*1000;
+  /* 关键修复：不能只跟"已经响过的"拍点比——用户踩着听到的"哒"点时，
+     对应的那个拍点还没被调度进 clickTimes，必然匹配到上一拍（差 ~0.75s）而被拒。
+     正确做法：拍点是等间隔网格 t0 + k*interval（含未来拍），取最近网格点 */
+  const t0=R.clickTimes[0];
+  const k=Math.round((now-t0)/R.interval);
+  const nearest=t0+k*R.interval;
+  /* 扣掉音频输出延迟，否则戴耳机的用户全被误判成拖拍型 */
+  const latency=A.ctx.outputLatency||A.ctx.baseLatency||0;
+  const off=(now-latency-nearest)*1000;       /* 毫秒，负=抢拍，正=拖拍 */
   R.taps.push(off);
   const bubbles=$$('#tapsRow .tapBubble');
   bubbles[R.taps.length-1].classList.add('hit');
