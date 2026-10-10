@@ -1274,6 +1274,7 @@ function flip(){
   cas.classList.toggle('flipped',toB);
   curSide=toB?'B':'A';
   if(isPlaying){ A.play(curSong,curSide); }   /* 正在播就无缝切到那一面 */
+  $('#flipBtn').textContent=toB?'翻面 A-SIDE':'翻面 B-SIDE';  /* 按钮指向下一面 */
   toast(toB?'B 面 · 慢速变奏':'A 面 · 原版');
 }
 $('#flipBtn').addEventListener('click',flip);
