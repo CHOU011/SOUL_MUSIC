@@ -80,8 +80,10 @@ h1{font-size:clamp(24px,5.2vmin,38px);letter-spacing:.12em;font-weight:700;text-
 
 /* ---------- 开场：戴上耳机 ---------- */
 #gate{text-align:center}
-.headphoneArt{font-size:64px;margin:18px 0 6px;filter:drop-shadow(0 0 18px rgba(255,200,130,.45));animation:floatY 3.4s ease-in-out infinite}
+.headphoneArt{font-size:64px;margin:18px 0 6px;animation:floatY 3.4s ease-in-out infinite;will-change:transform}
+.headphoneArt .hp{display:inline-block;filter:drop-shadow(0 0 18px rgba(255,200,130,.45))}
 @keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+@media (prefers-reduced-motion:reduce){.headphoneArt{animation:none}}
 #gate .tip{color:#8f87b5;font-size:13px;margin-top:14px}
 
 /* ---------- 进度点 ---------- */
@@ -244,7 +246,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border:none;border-ra
 <div id="stage">
   <!-- ========== 0 开场：戴上耳机（作为解锁 AudioContext 的用户交互入口） ========== -->
   <div class="panel" id="gate">
-    <div class="headphoneArt">🎧</div>
+    <div class="headphoneArt"><span class="hp">🎧</span></div>
     <h1>灵魂主题曲生成所</h1>
     <p class="sub">SOUL THEME GENERATOR · 午夜营业中</p>
     <p class="sub" style="margin-top:18px;color:#cfc8ee">回答三个小问题，<br>我们把你的灵魂压成一张 lofi 卡带。</p>
@@ -1050,18 +1052,31 @@ function setupTempo(){
   $('#tempoDone').style.display='none';
   const pad=$('#tapPad');
   pad.onpointerdown=onTap;
+  /* 老浏览器没有 pointer 事件时兜底，避免点击彻底无反应 */
+  if(!window.PointerEvent){
+    pad.ontouchstart=e=>{e.preventDefault();onTap();};
+    pad.onclick=onTap;
+  }
 }
 function startMetro(){
+  A.resume();
   R.phase='countin'; R.clickTimes=[]; R.taps=[];
   let count=-4;  /* -4..-1 为数拍，0 起为被测拍 */
   const step=()=>{
     if(R.phase!=='countin'&&R.phase!=='measuring') return;
+    /* 时钟没跑起来（比如系统音频设备切换）就先别铺拍点，等恢复 */
+    if(A.ctx.state!=='running'){ R.timer=setTimeout(step,120); return; }
     const t=A.ctx.currentTime+0.02;
     A.click(t,count<0);                       /* 数拍重音 */
     R.clickTimes.push(t);
     if(count===-1) R.phase='measuring';
-    /* 用 setTimeout 对齐视觉闪光 */
-    setTimeout(()=>{const p=$('#tapPad');if(p){p.classList.add('flash');setTimeout(()=>p.classList.remove('flash'),90);}},Math.max(0,(t-A.ctx.currentTime)*1000));
+    const show=count;   /* 闭包捕获当前拍号，避免 count++ 后错位 */
+    /* 用 setTimeout 对齐视觉闪光；数拍阶段在圆盘上显示 4-3-2-1 倒数 */
+    setTimeout(()=>{
+      const p=$('#tapPad');if(!p)return;
+      p.classList.add('flash');setTimeout(()=>p.classList.remove('flash'),90);
+      $('#tapCount').textContent=show<0?String(-show):String(8-R.taps.length);
+    },Math.max(0,(t-A.ctx.currentTime)*1000));
     count++;
     R.timer=setTimeout(step,R.interval*1000);
   };
@@ -1069,15 +1084,16 @@ function startMetro(){
   $('#tempoHint').textContent='先听 4 拍……然后跟着点';
 }
 function onTap(){
-  A.resume();
+  if(!A.ctx||A.ctx.state!=='running'){ A.init(); A.resume(); }
+  if(A.ctx.state!=='running') A.resume();   /* 有些浏览器 resume() 是异步的，多点几次没关系 */
   if(R.phase==='idle'){ startMetro(); return; }
-  if(R.phase==='countin'){ $('#tempoHint').textContent='别急，听我数完 4 拍'; return; }
+  if(R.phase==='countin'){ $('#tempoHint').textContent='别急，听我数完 4 拍（圆盘数字在倒数）'; return; }
   if(R.phase!=='measuring') return;
   const now=A.ctx.currentTime;
   /* 找最近的节拍点算偏移（毫秒，负=抢拍，正=拖拍） */
   let nearest=null,best=1e9;
   R.clickTimes.forEach(c=>{const d=Math.abs(now-c);if(d<best){best=d;nearest=c;}});
-  if(nearest===null||best>0.45) return;       /* 离任何拍点太远，忽略误触 */
+  if(nearest===null||best>0.45){ $('#tempoHint').textContent='没踩上拍，再试一下'; return; }  /* 离任何拍点太远，忽略误触 */
   const off=(now-nearest)*1000;
   R.taps.push(off);
   const bubbles=$$('#tapsRow .tapBubble');
